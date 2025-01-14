@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 var accessToken string
@@ -21,8 +22,23 @@ var accessToken string
 func main() {
 	r := gin.Default()
 
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatalf("Error loading .env file: %v", err)
+	}
+
+	clientID := os.Getenv("clientID")
+	clientSecret := os.Getenv("clientSecret")
+	redirectURI := os.Getenv("redirectURI")
+
+	// Validate environment variables
+	if clientID == "" || clientSecret == "" || redirectURI == "" {
+		log.Fatalf("Missing required environment variables: clientID, clientSecret, or redirectURI")
+	}
+
 	// Step 1: Redirect to GitHub for Authentication
 	r.GET("/login/oauth", func(c *gin.Context) {
+		println("clientID", os.Getenv("clientID"))
 		authURL := fmt.Sprintf(
 			"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&scope=repo",
 			os.Getenv("clientID"), os.Getenv("redirectURI"),
@@ -62,25 +78,6 @@ func main() {
 		if err != nil {
 			log.Printf("Error fetching repository tree: %v\n", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch repository tree"})
-			return
-		}
-
-		c.JSON(http.StatusOK, tree)
-	})
-
-	// Step: Fetch Repository Tree Structure
-	r.GET("/repos/:owner/:repo/tree-structure", func(c *gin.Context) {
-		owner := c.Param("owner")
-		repo := c.Param("repo")
-		branch := c.Query("branch")
-		if branch == "" {
-			branch = "main" // Default to main branch
-		}
-
-		tree, err := fetchTreeStructure(owner, repo, branch)
-		if err != nil {
-			log.Printf("Error fetching repository tree structure: %v\n", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch repository tree structure"})
 			return
 		}
 
@@ -274,30 +271,4 @@ func makeGitHubAPIRequest(url string) ([]byte, error) {
 	}
 
 	return ioutil.ReadAll(resp.Body)
-}
-
-// fetchTreeStructure fetches the repository tree structure and filters only code files.
-func fetchTreeStructure(owner, repo, branch string) (map[string]interface{}, error) {
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/%s/git/trees/%s?recursive=1", owner, repo, branch)
-
-	// Fetch the repository tree
-	treeResponse, err := makeGitHubAPIRequest(apiURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch repository tree: %w", err)
-	}
-
-	// Parse the tree data
-	var treeData map[string]interface{}
-	if err := json.Unmarshal(treeResponse, &treeData); err != nil {
-		return nil, fmt.Errorf("failed to parse tree data: %w", err)
-	}
-
-	// Filter the tree for code files
-	filteredFiles := filterCodeFiles(treeData["tree"].([]interface{}))
-
-	// Return the filtered tree structure
-	return map[string]interface{}{
-		"sha":  treeData["sha"],
-		"tree": filteredFiles,
-	}, nil
 }
